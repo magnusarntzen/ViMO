@@ -1,0 +1,141 @@
+<head>
+  <style>
+	table { 
+		border-spacing: 50px;
+		#border: 1px solid black;
+	}
+	td {
+		padding: 15px;
+	}
+  </style>
+</head>
+
+<h1>Help on using this App</h1>
+<span style="font-size: larger;"><i>The purpose of this App is to ease the data integration between metagenomics, metatranscriptomics and metaproteomics. And at the same time provide the user with interactive, publication-ready, and relevant graphical representations of the data.</i></span>
+
+<br>
+<br>
+<h2>File formats</h2>
+The App requires two files to function, one Masterfile and one Contigfile - the file formats are explained further down.
+
+<h4>Masterfile</h4>
+<p>This is a file containing all predicted genes of all microbes in the samples. This is typically the output from metagenomics annotated with functional databases (e.g. by using InterProScan, DRAM, dbCAN, KoFamScan, and/or others).
+Every row should be one gene, having a unique accession number. The columns should be separated by tabs, and multiple values within one column should be separated by semicolons.</p>
+
+<p>Some columns are essential for this App to function properly:</p>
+<ul>
+	<li><b>Accn</b>, this column holds the unique accession number of the gene</li>
+	<li><b>Bin</b>, this column holds the name of the bin/MAG that the gene belongs to</li>
+	<li><b>KEGG</b>, this column contains a list of KEGG-pathways where the gene is involved, e.g. ko00983. This can be empty, or contain one or more semicolon-separated values. This is usually provided by InterProScan on the correct form.</li>
+	<li><b>EC</b>, this column contains a list of Enzyme Commision numbers (ECs) for the gene, e.g. 1.17.4.1. This can be empty, or contain one or more semicolon-separated values. This is usually provided by InterProScan on the correct form.</li>
+	<li><b>CAZy</b>, this column contains a list of CAZy-annotations for the gene. This can be empty, or contain one or more semicolon-separated values. This is usually provided by dbCAN.</li>
+	<li><b>KO</b>, this is needed for KEGG functional analysis and for the KEGG-Modules calculation of mcf (module completion calculation) and can be provided from the software KoFamScan</li>
+</ul>
+
+<p>Optional but highly recommended quantitative columns:</p>
+<ul>
+	<li><b>metaT_TPM</b>, this is the starting string for all metaT columns, typically containing transcripts per million (tpm) values as a quantitative measure of mRNA across conditions. Should be followed by a condition-specific string, e.g. 'metaT_TPM_t2a'</li>
+	<li><b>metaP_LFQ</b>, this is the starting string for all metaP columns, typically containing label-free quantification (LFQ) values as a quantitative measure of proteins across conditions. Should be followed by a condition-specific string, e.g. 'metaP_LFQ_t2a'</li>
+</ul>
+<p>Obviously other quantification techniques can be used instead of tpm and LFQ for metatranscriptomics and -proteomics, respectively, but these are the headers to use even if the numbers represent something else.</p>
+
+<em>Of note, newer versions of InterProScan do not provide KEGG pathways and EC mapping. These can however be mapped back using functions within <a href="makeMasterFile.zip">this script</a>.</em>
+
+<br>
+<br>
+<h4>Contigfile</h4>
+<p>This is a file containing all contigs used to generate the bins/MAGs. Every row should be one contig with a specific accession in the column 'Contig'</p>
+
+<p>Some columns are essential for this App to function properly:</p>
+<ul>
+	<li><b>Contig</b>, this column holds the unique accession number of the contig</li>
+	<li><b>Bin</b>, this column holds the name of the bin/MAG that the contig belongs to</li>
+	<li><b>Length</b>, the length of the contig as an integer</li>
+	<li><b>Coverage</b>, the coverage of the contig, typically provided by CoverM. Can be a floating number</li>
+	<li><b>GC</b>, the GC% of the contig as a floating number</li>
+</ul>
+<p>Optional but highly recommended columns:</p>
+<ul>
+	<li><b>Lineage</b>, this column holds the taxonomical lineage of the contig, e.g., provided by CAT/BAT.</li>
+	<li><b>Completeness</b>, quality measurement of the bin/MAG from CheckM</li>
+	<li><b>Contamination</b>, quality measurement of the bin/MAG from CheckM</li>
+	<li><b>Strain.heterogeneity</b>, quality measurement of the bin/MAG from CheckM</li>
+</ul>
+
+<br>
+<br>
+
+<p>The two example files can be downloaded <a href="./All_genes_functional_quantitative_data.txt">here</a> and <a href="Bin_taxonomy_coverages.txt">here</a> for inspection and aid in constructing your own file.</p>
+
+<br>
+<br>
+<h2>Integration with <img src="galaxy_logo.png" alt="Galaxy" width="150"></h2>
+We have also developed three freely available analysis pipelines in the <a href="https://usegalaxy.org/">Galaxy</a> tool suit:
+<ul>
+	<li><a href="https://proteomics.usegalaxy.eu/u/mgnsrntzn/w/metag"><b>metaG</b></a>, utilizing both individual and co-assembly of reads, binning of contigs into MAGs, gene and protein prediction, functional annotation of genes and proteins, and taxonomical placement of MAGs.</li>
+	<li><a href="https://proteomics.usegalaxy.eu/u/mgnsrntzn/w/metat"><b>metaT</b></a>, offering quantification of metatranscriptomics reads using Kallisto</li>
+	<li><a href="https://proteomics.usegalaxy.eu/u/mgnsrntzn/w/metap"><b>metaP</b></a>, offering quantification of metaproteomics spectra using MaxQuant</li>
+</ul>
+
+These workflows in Galaxy creates a number of different files:
+<ul>
+	<li>A list of contig FASTA files, one per bin/MAG</li>
+	<li>Contig coverages from MaxBin2</li>
+	<li>Functional annotation of genes from InterProScan and dbCAN, containing Pfam, KEGG, EC, CAZy and more</li>
+	<li>mRNA quantification file from Kallisto</li>
+	<li>Protein quantification file from MaxQuant</li>
+	<li>Taxonomical placement file from BAT</li>
+</ul>
+<p>We have also developed an R-script to read all these files and assemble the Masterfile and Contigfile. This script can be downloaded <a href="makeMasterFile.zip">here</a>. To run this on your own data, you need to download the files from Galaxy and adjust the paths in the script accordingly.</p>
+<br><br>
+<p>Please also view our blog-post <a href="https://galaxyproject.eu/posts/2020/04/14/integrative-meta-omics/">Integrative meta-omics analysis</a> at the Galaxy project, where we describe in detail the analysis of these files using R. This was the basis for developing this interactive App.</p>
+<p>The study behind the two example files has been described in its entierty here:</p>
+<ul>
+  <li><a href="https://www.nature.com/articles/s41396-018-0290-y">Kunath BJ, Delogu F, et. al. From proteins to polysaccharides: lifestyle and genetic evolution of Coprothermobacter proteolyticus. ISME J. 2019 Mar; 13(3):603-617</a></li>
+  <li><a href="https://www.nature.com/articles/s41467-020-18543-0">Delogu F, Kunath BJ, et. Al. Integration of absolute multi-omics reveals translational and metabolic interplay in mixed-kingdom microbiomes. Nature Communications. 2020; 11, 4708</a></li>
+</ul>
+
+<br>
+<br>
+<h2>Contribution</h2>
+A number of people have contributed to the development of these tools for meta-omics analysis in Galaxy over time.
+<ul>
+	<li><a href="https://www.nmbu.no/emp/magnus.arntzen">Magnus Arntzen</a> - main developer of Galaxy workflows and this Shiny App</li>
+	<li>Valerie Schiml - developer of Galaxy workflows and optimization</li>
+	<br>
+	<li>Data generation, analysis, and biological interpretation
+		<ul>
+			<li>Francesco Delogu</li>
+			<li>Benoit Kunath</li>
+			<li>Phil Pope</li>
+		</ul>
+	</li>
+	<br>
+	<li>Galaxy implementation and facilitation
+		<ul>
+			<li>Praveen Kumar</li>
+			<li>Subina Mehta</li>
+			<li>James E. Johnson</li>
+			<li>Pratik Jagtap</li>
+			<li>Timothy J. Griffin</li>
+			<li>Bjoern Gruning</li>
+			<li>Bérénice Batut</li>
+		</ul>
+	</li>
+	<br>
+</ul>
+<br>
+<div>
+  <table>
+	<tr>
+		<td><a href="https://novonordiskfonden.dk/en/"><img src="NNF.png" width="200"></a></td>
+		<td><a href="https://cbs.umn.edu/norwegian-centennial-chair/home"><img src="norway_globelogo2.jpg" width="200"></a></td>
+		<td><a href="http://galaxyp.org/"><img src="GalaxyP_logo.png" width="200"></a></td>
+	</tr>
+	<tr>
+		<td><a href="http://www.nmbu.no/"><img src="nmbu_logo-med-tekstbilde.png" width="200"></a></td>
+		<td><a href="https://www.denbi.de/"><img src="deNBI_Logo_rgb.png" width="200"></a></td>
+		<td><a href="https://www.elixir-europe.org/"><img src="elixir_logo.png" width="200"></a></td>
+	</tr>
+  </table>
+</div>
