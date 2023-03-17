@@ -5,7 +5,7 @@ Visualizer for Meta-Omics (ViMO) is an interactive R-Shiny-based application to 
 https://magnusarntzen.shinyapps.io/VisualizerForMultiOmics/  
 
 
-**ViMO integrate data from**  
+### ViMO integrate data from
   - Metagenomics  
   - Metatranscriptomics  
   - Metaproteomics  
@@ -14,14 +14,14 @@ https://magnusarntzen.shinyapps.io/VisualizerForMultiOmics/
   - KEGG functions and module completion  
   - Carbohydrate-active enzymes (CAZymes)  
 
-**ViMO makes plots of:**  
+### ViMO makes plots of:
   - MAG quality  
   - MAG abundance in various files  
   - CAZyme categories in various MAGs and their abundancies at transcript- and protein-level  
   - KEGG categories in various MAGs and their abundancies at transcript- and protein-level  
   - KEGG module completion fractions to see the metabolic potential for each MAG  
   
-  **Some example output:**  
+### Some example output:
   ![Fig1](/example_output/KEGG.PNG)
   ![Fig2](/example_output/KEGG_2.PNG)
   ![Fig3](/example_output/mcf.PNG)
