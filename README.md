@@ -21,3 +21,7 @@ https://magnusarntzen.shinyapps.io/VisualizerForMultiOmics/
   - KEGG categories in various MAGs and their abundancies at transcript- and protein-level  
   - KEGG module completion fractions to see the metabolic potential for each MAG  
   
+  **Some example output:**  
+  ![Fig1](/example_output/KEGG.PNG)
+  ![Fig2](/example_output/KEGG_2.PNG)
+  ![Fig3](/example_output/mcf.PNG)
