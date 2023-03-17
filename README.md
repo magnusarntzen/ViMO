@@ -25,3 +25,8 @@ https://magnusarntzen.shinyapps.io/VisualizerForMultiOmics/
   ![Fig1](/example_output/KEGG.PNG)
   ![Fig2](/example_output/KEGG_2.PNG)
   ![Fig3](/example_output/mcf.PNG)
+
+## Bug Reports
+Please report bugs through the GitHub issues system.  
+  
+Copyright (C) 2023, Magnus Arntzen, Norwegian University of Life Science
