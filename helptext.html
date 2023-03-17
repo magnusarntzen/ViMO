@@ -10,19 +10,19 @@
   </style>
 </head>
 
-<h1>Help on using this App</h1>
-<span style="font-size: larger;"><i>The purpose of this App is to ease the data integration between metagenomics, metatranscriptomics and metaproteomics. And at the same time provide the user with interactive, publication-ready, and relevant graphical representations of the data.</i></span>
+<h1>Help on using ViMO</h1>
+<span style="font-size: larger;"><i>The purpose of ViMO is to ease the data integration between metagenomics, metatranscriptomics and metaproteomics. And at the same time provide the user with interactive, publication-ready, and relevant graphical representations of the data.</i></span>
 
 <br>
 <br>
 <h2>File formats</h2>
-The App requires two files to function, one Masterfile and one Contigfile - the file formats are explained further down.
+ViMO requires two files to function, one Masterfile and one Contigfile - the file formats are explained further down.
 
 <h4>Masterfile</h4>
 <p>This is a file containing all predicted genes of all microbes in the samples. This is typically the output from metagenomics annotated with functional databases (e.g. by using InterProScan, DRAM, dbCAN, KoFamScan, and/or others).
 Every row should be one gene, having a unique accession number. The columns should be separated by tabs, and multiple values within one column should be separated by semicolons.</p>
 
-<p>Some columns are essential for this App to function properly:</p>
+<p>Some columns are essential for ViMO to function properly:</p>
 <ul>
 	<li><b>Accn</b>, this column holds the unique accession number of the gene</li>
 	<li><b>Bin</b>, this column holds the name of the bin/MAG that the gene belongs to</li>
@@ -46,7 +46,7 @@ Every row should be one gene, having a unique accession number. The columns shou
 <h4>Contigfile</h4>
 <p>This is a file containing all contigs used to generate the bins/MAGs. Every row should be one contig with a specific accession in the column 'Contig'</p>
 
-<p>Some columns are essential for this App to function properly:</p>
+<p>Some columns are essential for ViMO to function properly:</p>
 <ul>
 	<li><b>Contig</b>, this column holds the unique accession number of the contig</li>
 	<li><b>Bin</b>, this column holds the name of the bin/MAG that the contig belongs to</li>
@@ -88,7 +88,7 @@ These workflows in Galaxy creates a number of different files:
 </ul>
 <p>We have also developed an R-script to read all these files and assemble the Masterfile and Contigfile. This script can be downloaded <a href="makeMasterFile.zip">here</a>. To run this on your own data, you need to download the files from Galaxy and adjust the paths in the script accordingly.</p>
 <br><br>
-<p>Please also view our blog-post <a href="https://galaxyproject.eu/posts/2020/04/14/integrative-meta-omics/">Integrative meta-omics analysis</a> at the Galaxy project, where we describe in detail the analysis of these files using R. This was the basis for developing this interactive App.</p>
+<p>Please also view our blog-post <a href="https://galaxyproject.eu/posts/2020/04/14/integrative-meta-omics/">Integrative meta-omics analysis</a> at the Galaxy project, where we describe in detail the analysis of these files using R. This was the basis for developing ViMO.</p>
 <p>The study behind the two example files has been described in its entierty here:</p>
 <ul>
   <li><a href="https://www.nature.com/articles/s41396-018-0290-y">Kunath BJ, Delogu F, et. al. From proteins to polysaccharides: lifestyle and genetic evolution of Coprothermobacter proteolyticus. ISME J. 2019 Mar; 13(3):603-617</a></li>
@@ -100,7 +100,7 @@ These workflows in Galaxy creates a number of different files:
 <h2>Contribution</h2>
 A number of people have contributed to the development of these tools for meta-omics analysis in Galaxy over time.
 <ul>
-	<li><a href="https://www.nmbu.no/emp/magnus.arntzen">Magnus Arntzen</a> - main developer of Galaxy workflows and this Shiny App</li>
+	<li><a href="https://www.nmbu.no/emp/magnus.arntzen">Magnus Arntzen</a> - main developer of Galaxy workflows and ViMO</li>
 	<li>Valerie Schiml - developer of Galaxy workflows and optimization</li>
 	<br>
 	<li>Data generation, analysis, and biological interpretation
