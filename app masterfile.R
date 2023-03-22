@@ -18,8 +18,8 @@
 ###################################################################################
 
 
-#You want to increase this if uploading Masterfile and Contigfile > 30 Mb.
-options(shiny.maxRequestSize=30*1024^2)
+#You want to increase this if uploading Masterfile and Contigfile > 200 Mb.
+options(shiny.maxRequestSize=200*1024^2)
 
 
 ######################## -  LIBRARIES AND GLOBALS - #####################################
@@ -87,7 +87,8 @@ ui_dataset_details <- fluidRow(
     h3("Dataset overview"),
     fileInput("masterfile", "Choose Masterfile", accept = ".txt"),
     fileInput("contigfile", "Choose Contigfile", accept = ".txt"),
-    p("See the help section for an explanation of the file formats"),
+    p("See the help section for an explanation of the file formats."),
+    p("Current file-size upload limits are set to 200 Mb."),
     actionButton("loadButton", "Load files", class = "btn-success"),
     actionButton("loadButton_example", "Use example files", class = "btn-success"),
     
@@ -141,7 +142,8 @@ ui_cazy_functional_analysis <- fluidPage(width = 12,
     ),
     fluidRow(
       column(12, 
-        plotOutput(outputId = "cazyPlot_legend", height = "100px"),
+        plotOutput(outputId = "cazyPlot_legend", inline = TRUE),# height = "100px"),
+        hr(),
         h5("The barplots show the number/abundance of genes/transcripts/proteins per bin and per sample."),
         h5("The heatmaps below show the abundance of transcripts/proteins per bin but for all samples simultaneously to highlight e.g. changes over time.")
       )
@@ -199,7 +201,7 @@ ui_kegg_functional_analysis <- fluidPage(width = 12,
     )
   ),
   fluidRow(
-    plotOutput(outputId = "keggPlot_legend", height = "100px")
+    plotOutput(outputId = "keggPlot_legend", inline = TRUE)#, height = "100px")
   ),
   fluidRow(
       div(DT::dataTableOutput("keggTable"), style ="font-size: 90%; height: 75%"),
@@ -215,7 +217,7 @@ ui_kegg_functional_analysis <- fluidPage(width = 12,
     ),
     column(5,
       checkboxInput(inputId = "keggplot_check_download_kegg", label = "Download and display KEGG pathway", value = TRUE),
-      radioButtons(inputId = "keggplot_annotation_radio", label = "Mark KEGG pathway with", choiceNames =  c("Meta-genomics", "Meta-transcriptomics (average across files)", "Meta-proteomics (average across files)"), choiceValues =  c("MetaG", "MetaT", "MetaP")),
+      radioButtons(inputId = "keggplot_annotation_radio", label = "Mark KEGG pathway with", choiceNames =  c("Meta-genomics", "Meta-transcriptomics (average abundance across samples)", "Meta-proteomics (average abundance across samples)"), choiceValues =  c("MetaG", "MetaT", "MetaP")),
       selectInput(inputId = "keggPlot_heatmap_binSelector", label = "MAG:", choices = c("NA")),
       plotOutput(outputId = "keggPlot_heatmap_MT", inline = TRUE),
       downloadButton("download_keggPlot_MT_heatmap", label = "PDF"),
@@ -229,10 +231,20 @@ ui_kegg_functional_analysis <- fluidPage(width = 12,
 ui_MAGs <- fluidPage(width = 12,
   fluidRow(
     h3("Metagenome-assembled genomes (MAGs)"),
+    h4(textOutput("MAGplot_info", container = span)),
+    fluidRow(
+      column(2,
+        sliderInput(inputId = "MAG_slider_completeness", label = "Filter to MAGs with Completeness above", min = 0, max = 100, value = 90, step = 1, post="%", ticks = FALSE),
+      ),
+      column(2,
+        sliderInput(inputId = "MAG_slider_contamination", label = "Filter to MAGs with Contamination below", min = 0, max = 100, value = 5, step = 1, post="%", ticks = FALSE),
+      ),
+      column(8)
+    ),
     plotOutput(outputId = "MAGPlot", height = "600px"),
-    checkboxInput(inputId = "MAG_showEllipses", label = "Show MAG densities", value = TRUE),
     downloadButton("downloadMAGPlot", label = "PDF"),
     h5("The plot shows the GC% and coverage of all contigs in the metagenomics data. The size reflects the contig length and the color shows which MAG/bin the contig was assigned to."),
+    h5("The plot will never show more then 50 MAGs for visualization purposes. If the table below has >50 MAGs the plot will be limited to the 50 most abundant ones."),
     br(),
     br(),
     div(DT::dataTableOutput("MAGTable"), style ="font-size: 90%; height: 75%"),
@@ -398,6 +410,13 @@ server <- function(input, output, session) {
     do_lineage <<- 'Lineage' %in% colnames(data$contig_tbl)
     do_checkM <<- !FALSE %in% (c('Completeness', 'Contamination', 'Strain.heterogeneity') %in% colnames(data$contig_tbl))
     
+    print(paste("MetaP:", do_metaP))
+    print(paste("MetaT:", do_metaT))
+    print(paste("Lineage:", do_lineage))
+    print(paste("CheckM:", do_checkM))
+    
+    
+    
     #Since 2022, InterProScan does no longer provide KO-pathways and EC annotations,
     #hence, the KEGG and EC columns are often empty, which will affect the KEGG analysis
     #in this tool.
@@ -466,6 +485,9 @@ server <- function(input, output, session) {
     updateSelectInput(session, "keggPlot_heatmap_binSelector", choices = unique(data$contig_tbl$Bin))
     #MCF-page
     #This will be updated after mcf calculation due to different content for modules
+    #MAG-Page
+    if (do_checkM)
+      updateSliderInput(session, "MAG_slider_contamination", max = ceiling(max(data$contig_tbl$Contamination)))
     
 
     #Enable analysis
@@ -498,29 +520,39 @@ server <- function(input, output, session) {
     ggthemr(theme_string, type="outer", layout="scientific", spacing=2, text_size = 14)
     n_cols <- length(unique(data$contig_tbl$Bin))
     
+    #Provides 8 usable bin-colors. Nine in swatch but first one is special
     global_swatch <<- as.vector(swatch())
     
-    if (n_cols > 8)
-      global_swatch <<- c(global_swatch, brewer.pal(11, "BrBG")) #Current theme has 8 usable colors in swatch (9 total but 1st is special)
+    if (n_cols > 8 & n_cols < 20) {
+      #Provides 19 + 1 special
+      global_swatch <<- c(global_swatch, brewer.pal(11, "BrBG"))
+    }
 
-    if (n_cols > 19) {
+    if (n_cols > 19 & n_cols < 71) {
+      #Provides 70 + 1 special
       qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
-      global_swatch <<- c("#555555", unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals))))
+      global_swatch <<- c("#555555", unique(unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))))
     }
 
-    if (n_cols > 75) {  #This is becoming a headache!
-      global_swatch <<- c("#555555", grDevices::colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)])
+    if (n_cols > 70 & n_cols < 503) {  #This is becoming a headache!
+      #Provides 502 + 1 special
+      global_swatch <<- c("#555555", colors(distinct = TRUE))
     }
 
-    if (n_cols > 434) { #AAAhh!
-      global_swatch <<- c("#555555", sample(colors(), 657))
+    if (n_cols > 502) { #AAAhh!...What to do here? There may be datasets with >1500 bins
+      #Not possible to generate this many unique colors
+      #Not possible to use ggplot with not-unique colors
+      #Not possible to draw the plot at all 
+      #Not possible to interpret the plot anyhow
+      
+      #Can we filter to the most abundant MAGs?
+      
+      #Can we say that ViMO do not support graphing this many MAGs? The users are referred to manual analysis in R.
+      
+      print(">502 Bins in the data. R, ggplot and ViMO have difficultis with that any. R will likely crash...")
     }
 
-    if (n_cols > 657) { #...What to do here? There may be datasets with >1500 bins
-      #Need to reuse colors in this case
-      global_swatch <<- c("#555555", sample(colors(), n_col, replace = TRUE))
-    }
-    
+
     names(global_swatch) <<- c(NA, sort(unique(data$contig_tbl$Bin)))
     
     set_swatch(global_swatch)
@@ -581,12 +613,18 @@ server <- function(input, output, session) {
       return()
     }
     
+    showNotification("Loading...", type = "message", duration = 2)
+    
     data$master_tbl <- read.table(input$masterfile$datapath, header=T, sep="\t", quote="", colClasses=c(Bin="character"))
     data$contig_tbl <- read.table(input$contigfile$datapath, header=T, sep="\t", quote="", colClasses=c(Bin="character"))
     data$masterfile <- paste(input$masterfile$name, '(uploaded)')
     data$contigfile <- paste(input$contigfile$name, '(uploaded)')
+    
+    
+    showNotification("Files loaded. Calculating subsets...", type = "message", duration = 5)
     updateTables()
   })
+  
   observeEvent(input$loadButton_example, {
     print("example_button")
     data$master_tbl <- read.table(example_masterfile, header=T, sep="\t", quote="", colClasses=c(Bin="character"))
@@ -606,6 +644,7 @@ server <- function(input, output, session) {
   output$filesSummary <- renderUI({
     print("files summary")
     
+    
     #Calculate some numbers
     metaG_count <- 0
     metaP_count <- 0
@@ -615,8 +654,10 @@ server <- function(input, output, session) {
     mag_count <- 0
     if (!is.null(data$masterfile)) {
       metaG_count <- nrow(data$master_tbl)
-      metaP_count <- nrow(data$master_tbl %>% filter(metaP_expressed == TRUE))
-      metaT_count <- nrow(data$master_tbl %>% filter(metaT_expressed == TRUE))
+      if (do_metaP)
+        metaP_count <- nrow(data$master_tbl %>% filter(metaP_expressed == TRUE))
+      if (do_metaT)
+        metaT_count <- nrow(data$master_tbl %>% filter(metaT_expressed == TRUE))
       cazyme_count <- nrow(data$cazymes)
       kegg_count <- nrow(data$kegg_proteins)
       mag_count <- nrow(data$contig_tbl %>% select(Bin) %>% distinct())
@@ -632,6 +673,7 @@ server <- function(input, output, session) {
       paste("<b>Proteins quantified:</b><code>", metaP_count,"</code>"),
       paste("<b>CAZymes:</b><code>", cazyme_count,"</code>"),
       paste("<b>KEGG-annotated genes:</b><code>", kegg_count,"</code>"),
+      paste("<br/>", ifelse(mag_count > 49 | metaG_count > 100000, "<h3><b>NB: You may experience slowness in the App with this many MAGs/genes. It will work, just slow.</b></h3>", "")),
       sep = '<br/>'))
   })
   
@@ -656,6 +698,10 @@ server <- function(input, output, session) {
 
     grid.newpage()
     grid.draw(legend)
+  }, height = function() {
+    round(length(data$cazymes_expanded %>%
+                   filter(CAZyText == input$cazyGroup) %>%
+                   select(Bin) %>% distinct() %>% deframe()) * 2.3 + 30)
   })
   
   #MetaG
@@ -684,176 +730,192 @@ server <- function(input, output, session) {
   )
   
   #MetaT
-  if (do_metaT) {
-    output$cazyPlot_MT <- renderPlot({
-  
-      group <- input$cazyGroup
-      
-      dataSubset <- data$cazymes_expanded %>%
-        select(-contains("metaP_LFQ")) %>%
-        filter(CAZyText == group) %>%
-        pivot_longer(cols = contains("metaT_TPM"), names_to="Sample", values_to="Value") %>%
-        filter(Sample == input$sample_MT)
-  
+  output$cazyPlot_MT <- renderPlot({
+    print("CAZyPlot_MT rendering")
+    group <- input$cazyGroup
+    
+    if (!do_metaT) {
+      print("returning...")
+      return()
+    }
+    
+    dataSubset <- data$cazymes_expanded %>%
+      select(-contains("metaP_LFQ")) %>%
+      filter(CAZyText == group) %>%
+      pivot_longer(cols = contains("metaT_TPM"), names_to="Sample", values_to="Value") %>%
+      filter(Sample == input$sample_MT)
+
+    dataSubset <- dataSubset %>%
+      group_by(CAZyClassNumber, Bin) %>%
+      summarise(y_axis = sum(Value, na.rm = TRUE))
+
+    dataSubset <- dataSubset %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
+
+    plot <- ggplot(dataSubset) +
+      geom_col(mapping = aes(x=CAZyClassNumber, fill = Bin, y=y_axis)) +
+      scale_fill_manual(values=global_swatch) +
+      scale_y_continuous(breaks = function(x) pretty(x, n=3)) +
+      labs(title = "", y="Transcripts per million (tpm)", x="CAZy class number") +
+      theme(legend.position='none', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1))
+    
+    ggsave("cazyPlot_MT.pdf", plot)
+    plot
+  })
+  output$download_cazyPlot_MT  <- downloadHandler(
+    filename = function() {"cazyPlot_MT.pdf"},
+    content = function(file) {file.copy("cazyPlot_MT.pdf", file, overwrite=TRUE)}
+  )
+
+  #MetaP
+  output$cazyPlot_MP <- renderPlot({
+    print("CAZyPlot_MP rendering")
+    group <- input$cazyGroup
+
+    if (!do_metaP) {
+      print("returning...")
+      return()
+    }
+    
+    
+    dataSubset <- data$cazymes_expanded %>%
+      select(-contains("metaT_TPM")) %>%
+      filter(CAZyText == group) %>%
+      pivot_longer(cols = contains("metaP_LFQ"), names_to="Sample", values_to="Value") %>%
+      filter(Sample == input$sample_MP)
+
+    if (input$yaxis_MP == "Summed LFQ") {
       dataSubset <- dataSubset %>%
         group_by(CAZyClassNumber, Bin) %>%
         summarise(y_axis = sum(Value, na.rm = TRUE))
-  
-      dataSubset <- dataSubset %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
-  
-      plot <- ggplot(dataSubset) +
-        geom_col(mapping = aes(x=CAZyClassNumber, fill = Bin, y=y_axis)) +
-        scale_fill_manual(values=global_swatch) +
-        scale_y_continuous(breaks = function(x) pretty(x, n=3)) +
-        labs(title = "", y="Transcripts per million (tpm)", x="CAZy class number") +
-        theme(legend.position='none', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1))
-      
-      ggsave("cazyPlot_MT.pdf", plot)
-      plot
-      
-    })
-    output$download_cazyPlot_MT  <- downloadHandler(
-      filename = function() {"cazyPlot_MT.pdf"},
-      content = function(file) {file.copy("cazyPlot_MT.pdf", file, overwrite=TRUE)}
-    )
-  }
-  
-  #MetaP
-  if (do_metaP) {
-    output$cazyPlot_MP <- renderPlot({
-  
-      group <- input$cazyGroup
-      
-      dataSubset <- data$cazymes_expanded %>%
-        select(-contains("metaT_TPM")) %>%
-        filter(CAZyText == group) %>%
-        pivot_longer(cols = contains("metaP_LFQ"), names_to="Sample", values_to="Value") %>%
-        filter(Sample == input$sample_MP)
-  
-      if (input$yaxis_MP == "Summed LFQ") {
-        dataSubset <- dataSubset %>%
-          group_by(CAZyClassNumber, Bin) %>%
-          summarise(y_axis = sum(Value, na.rm = TRUE))
-      }
-      if (input$yaxis_MP == "Protein count") {
-        dataSubset <- dataSubset %>%
-          group_by(CAZyClassNumber, Bin) %>%
-          summarise(y_axis = sum(!is.na(Value)))
-      }
-  
-      dataSubset <- dataSubset %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
-  
-  
-      plot <- ggplot(dataSubset) +
-        geom_col(mapping = aes(x=CAZyClassNumber, fill = Bin, y=y_axis)) +
-        scale_fill_manual(values=global_swatch) +
-        scale_y_continuous(breaks = function(x) pretty(x, n=3)) +
-        labs(title = "", y=input$yaxis_MP, x="CAZy class number") +
-        theme(legend.position='none', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1))
-      
-      ggsave("cazyPlot_MP.pdf", plot)
-      plot
-      
-    })
-    output$download_cazyPlot_MP  <- downloadHandler(
-      filename = function() {"cazyPlot_MP.pdf"},
-      content = function(file) {file.copy("cazyPlot_MP.pdf", file, overwrite=TRUE)}
-    )
-  }
+    }
+    if (input$yaxis_MP == "Protein count") {
+      dataSubset <- dataSubset %>%
+        group_by(CAZyClassNumber, Bin) %>%
+        summarise(y_axis = sum(!is.na(Value)))
+    }
+
+    dataSubset <- dataSubset %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
+
+
+    plot <- ggplot(dataSubset) +
+      geom_col(mapping = aes(x=CAZyClassNumber, fill = Bin, y=y_axis)) +
+      scale_fill_manual(values=global_swatch) +
+      scale_y_continuous(breaks = function(x) pretty(x, n=3)) +
+      labs(title = "", y=input$yaxis_MP, x="CAZy class number") +
+      theme(legend.position='none', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1))
+    
+    ggsave("cazyPlot_MP.pdf", plot)
+    plot
+    
+  })
+  output$download_cazyPlot_MP  <- downloadHandler(
+    filename = function() {"cazyPlot_MP.pdf"},
+    content = function(file) {file.copy("cazyPlot_MP.pdf", file, overwrite=TRUE)}
+  )
 
   #CAZy-heatmaps, updates based on selected bin
-  if (do_metaT) {
-    output$cazyPlot_heatmap_MT <- renderPlot({
-
-      group <- input$cazyGroup
-      
-      selected_data <- data$cazymes_expanded %>%
-        select(-contains("metaP_LFQ")) %>%
-        filter(CAZyText == group, Bin == input$cazyPlot_heatmap_binSelector) %>%
-        pivot_longer(cols = contains("metaT_TPM"), names_to = "Sample", values_to = "Value") %>%
-        group_by(CAZyClassNumber, Sample) %>%
-        summarise(Value = sum(Value, na.rm = TRUE))
-      
-      n_cc <- selected_data %>% select(CAZyClassNumber) %>% distinct() %>% deframe()
-
-      if (length(n_cc) == 0) {
-        ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough CAZy data for the selected bin") + theme_void()
-      } else {
-        
-        #Sort numbers alphabetically
-        selected_data <- selected_data %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
-
-        plot <- ggplot(selected_data) +
-          geom_tile(aes(y=CAZyClassNumber, x=Sample, fill=Value), color="white") +
-          labs(title = paste0("Abundance of ", group,", summed transcripts per million (tpm)")) +
-          theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
-          guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
-          scale_y_discrete(position = "right")
-
-        ggsave("cazyPlot_MT_heatmap.pdf", plot)
-        plot
-        
-      }
-    },width = function() {
-      ncol(data$cazymes_expanded %>% select(contains("metaT_TPM"))) * 50 + 200
-      
-    }, height = function() {
-      round(length(data$cazymes_expanded %>%
-              filter(CAZyText == input$cazyGroup, Bin == input$cazyPlot_heatmap_binSelector) %>%
-              select(CAZyClassNumber) %>% distinct() %>% deframe()) * 15 + 250)
-    })
-    output$download_cazyPlot_MT_heatmap  <- downloadHandler(
-      filename = function() {"cazyPlot_MT_heatmap.pdf"},
-      content = function(file) {file.copy("cazyPlot_MT_heatmap.pdf", file, overwrite=TRUE)}
-    )
+  output$cazyPlot_heatmap_MT <- renderPlot({
+    print("CAZyPlot_heatmap_MT rendering")
     
-  }
-  if (do_metaP) {
-    output$cazyPlot_heatmap_MP <- renderPlot({
-      
-      group <- input$cazyGroup
-      
-      selected_data <- data$cazymes_expanded %>%
-        select(-contains("metaT_TPM")) %>%
-        filter(CAZyText == group, Bin == input$cazyPlot_heatmap_binSelector) %>%
-        pivot_longer(cols = contains("metaP_LFQ"), names_to = "Sample", values_to = "Value") %>%
-        group_by(CAZyClassNumber, Sample) %>%
-        summarise(Value = sum(Value, na.rm = TRUE))
-      
-      n_cc <- selected_data %>% select(CAZyClassNumber) %>% distinct() %>% deframe()
+    group <- input$cazyGroup
 
-      if (length(n_cc) == 0) {
-        ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough CAZy data for the selected bin") + theme_void()
-      } else {
-        
-        #Sort numbers alphabetically
-        selected_data <- selected_data %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
-
-        plot <- ggplot(selected_data) +
-          geom_tile(aes(y=CAZyClassNumber, x=Sample, fill=Value), color="white") +
-          labs(title = paste0("Abundance of ", group,", summed protein LFQ")) +
-          theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
-          guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
-          scale_y_discrete(position = "right")
-        
-        ggsave("cazyPlot_MP_heatmap.pdf", plot)
-        plot
-      }
-    },width = function() {
-      ncol(data$cazymes_expanded %>% select(contains("metaP_LFQ"))) * 50 + 200
-      
-    },height = function() {
-      round(length(data$cazymes_expanded %>%
-                     filter(CAZyText == input$cazyGroup, Bin == input$cazyPlot_heatmap_binSelector) %>%
-                     select(CAZyClassNumber) %>% distinct() %>% deframe()) * 15 + 250)
-    })
-    output$download_cazyPlot_MP_heatmap  <- downloadHandler(
-      filename = function() {"cazyPlot_MP_heatmap.pdf"},
-      content = function(file) {file.copy("cazyPlot_MP_heatmap.pdf", file, overwrite=TRUE)}
-    )
+    if (!do_metaT) {
+      print("returning...")
+      return()
+    }
     
-  }
+    
+    selected_data <- data$cazymes_expanded %>%
+      select(-contains("metaP_LFQ")) %>%
+      filter(CAZyText == group, Bin == input$cazyPlot_heatmap_binSelector) %>%
+      pivot_longer(cols = contains("metaT_TPM"), names_to = "Sample", values_to = "Value") %>%
+      group_by(CAZyClassNumber, Sample) %>%
+      summarise(Value = sum(Value, na.rm = TRUE))
+    
+    n_cc <- selected_data %>% select(CAZyClassNumber) %>% distinct() %>% deframe()
+
+    if (length(n_cc) == 0) {
+      ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough CAZy data for the selected bin") + theme_void()
+    } else {
+      
+      #Sort numbers alphabetically
+      selected_data <- selected_data %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
+
+      plot <- ggplot(selected_data) +
+        geom_tile(aes(y=CAZyClassNumber, x=Sample, fill=Value), color="white") +
+        labs(title = paste0("Abundance of ", group,", summed transcripts per million (tpm)")) +
+        theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
+        guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
+        scale_y_discrete(position = "right")
+
+      ggsave("cazyPlot_MT_heatmap.pdf", plot)
+      plot
+      
+    }
+  },width = function() {
+    ncol(data$cazymes_expanded %>% select(contains("metaT_TPM"))) * 50 + 200
+    
+  }, height = function() {
+    round(length(data$cazymes_expanded %>%
+            filter(CAZyText == input$cazyGroup, Bin == input$cazyPlot_heatmap_binSelector) %>%
+            select(CAZyClassNumber) %>% distinct() %>% deframe()) * 15 + 250)
+  })
+  output$download_cazyPlot_MT_heatmap  <- downloadHandler(
+    filename = function() {"cazyPlot_MT_heatmap.pdf"},
+    content = function(file) {file.copy("cazyPlot_MT_heatmap.pdf", file, overwrite=TRUE)}
+  )
+
   
+  output$cazyPlot_heatmap_MP <- renderPlot({
+    print("CAZyPlot_heatmap_MP rendering")
+    
+    group <- input$cazyGroup
+    
+    if (!do_metaP) {
+      print("returning...")
+      return()
+    }
+    
+    
+    selected_data <- data$cazymes_expanded %>%
+      select(-contains("metaT_TPM")) %>%
+      filter(CAZyText == group, Bin == input$cazyPlot_heatmap_binSelector) %>%
+      pivot_longer(cols = contains("metaP_LFQ"), names_to = "Sample", values_to = "Value") %>%
+      group_by(CAZyClassNumber, Sample) %>%
+      summarise(Value = sum(Value, na.rm = TRUE))
+    
+    n_cc <- selected_data %>% select(CAZyClassNumber) %>% distinct() %>% deframe()
+
+    if (length(n_cc) == 0) {
+      ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough CAZy data for the selected bin") + theme_void()
+    } else {
+      
+      #Sort numbers alphabetically
+      selected_data <- selected_data %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
+
+      plot <- ggplot(selected_data) +
+        geom_tile(aes(y=CAZyClassNumber, x=Sample, fill=Value), color="white") +
+        labs(title = paste0("Abundance of ", group,", summed protein LFQ")) +
+        theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
+        guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
+        scale_y_discrete(position = "right")
+      
+      ggsave("cazyPlot_MP_heatmap.pdf", plot)
+      plot
+    }
+  },width = function() {
+    ncol(data$cazymes_expanded %>% select(contains("metaP_LFQ"))) * 50 + 200
+    
+  },height = function() {
+    round(length(data$cazymes_expanded %>%
+                   filter(CAZyText == input$cazyGroup, Bin == input$cazyPlot_heatmap_binSelector) %>%
+                   select(CAZyClassNumber) %>% distinct() %>% deframe()) * 15 + 250)
+  })
+  output$download_cazyPlot_MP_heatmap  <- downloadHandler(
+    filename = function() {"cazyPlot_MP_heatmap.pdf"},
+    content = function(file) {file.copy("cazyPlot_MP_heatmap.pdf", file, overwrite=TRUE)}
+  )
+
 
   
   
@@ -878,6 +940,10 @@ server <- function(input, output, session) {
 
     grid.newpage()
     grid.draw(legend)
+  }, height = function() {
+    round(length(data$kegg_proteins_expanded %>%
+                   filter(Parent.term == input$keggGroup) %>%
+                   select(Bin) %>% distinct() %>% deframe()) * 2.3 + 60)
   })
 
   #KEGGPlot - MG
@@ -904,75 +970,88 @@ server <- function(input, output, session) {
   )
 
   #KEGGPlot - MT
-  if (do_metaT) {
-    output$keggPlot_MT <- renderPlot({
-  
-      dataSubset <- data$kegg_proteins_expanded %>%
-        select(-contains("metaP_LFQ")) %>%
-        filter(Parent.term == input$keggGroup) %>%
-        pivot_longer(cols = contains("metaT_TPM"), names_to="Sample", values_to="Value") %>%
-        filter(Sample == input$kegg_sample_MT)
-  
+  output$keggPlot_MT <- renderPlot({
+    print("KeggPlot_MT rendering")
+    
+    group <- input$keggGroup
+    
+    if (!do_metaT) {
+      print("returning...")
+      return()
+    }
+    
+    dataSubset <- data$kegg_proteins_expanded %>%
+      select(-contains("metaP_LFQ")) %>%
+      filter(Parent.term == input$keggGroup) %>%
+      pivot_longer(cols = contains("metaT_TPM"), names_to="Sample", values_to="Value") %>%
+      filter(Sample == input$kegg_sample_MT)
+
+    dataSubset <- dataSubset %>%
+      group_by(KEGG, Bin) %>%
+      summarise(y_axis = sum(Value, na.rm = TRUE))
+
+    plot <- ggplot(dataSubset) +
+      geom_col(mapping = aes(x=KEGG, fill = Bin, y=y_axis)) +
+      scale_fill_manual(values=global_swatch) +
+      scale_y_continuous(breaks = function(x) pretty(x, n=3)) +
+      labs(title = "", y="Transcripts per million (tpm)", x="KEGG Pathway") +
+      theme(legend.position='none', axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+    ggsave("keggPlot_MT.pdf", plot)
+    plot
+  })
+  output$download_keggPlot_MT  <- downloadHandler(
+    filename = function() {"keggPlot_MT.pdf"},
+    content = function(file) {file.copy("keggPlot_MT.pdf", file, overwrite=TRUE)}
+  )
+
+
+  #KEGGPlot - MP
+  output$keggPlot_MP <- renderPlot({
+    print("KeggPlot_MP rendering")
+    
+    group <- input$keggGroup
+    
+    if (!do_metaP) {
+      print("returning...")
+      return()
+    }
+    
+    dataSubset <- data$kegg_proteins_expanded %>%
+      select(-contains("metaT_TPM")) %>%
+      filter(Parent.term == input$keggGroup) %>%
+      pivot_longer(cols = contains("metaP_LFQ"), names_to="Sample", values_to="Value") %>%
+      filter(Sample == input$kegg_sample_MP)
+
+    if (input$kegg_yaxis_MP == "Summed LFQ") {
       dataSubset <- dataSubset %>%
         group_by(KEGG, Bin) %>%
         summarise(y_axis = sum(Value, na.rm = TRUE))
-  
-      plot <- ggplot(dataSubset) +
-        geom_col(mapping = aes(x=KEGG, fill = Bin, y=y_axis)) +
-        scale_fill_manual(values=global_swatch) +
-        scale_y_continuous(breaks = function(x) pretty(x, n=3)) +
-        labs(title = "", y="Transcripts per million (tpm)", x="KEGG Pathway") +
-        theme(legend.position='none', axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-  
-      ggsave("keggPlot_MT.pdf", plot)
-      plot
-    })
-    output$download_keggPlot_MT  <- downloadHandler(
-      filename = function() {"keggPlot_MT.pdf"},
-      content = function(file) {file.copy("keggPlot_MT.pdf", file, overwrite=TRUE)}
-    )
-  }
+    }
+    if (input$kegg_yaxis_MP == "Protein count") {
+      dataSubset <- dataSubset %>%
+        group_by(KEGG, Bin) %>%
+        summarise(y_axis = sum(!is.na(Value)))
+    }
 
-  #KEGGPlot - MP
-  if (do_metaP) {
-    output$keggPlot_MP <- renderPlot({
-  
-      dataSubset <- data$kegg_proteins_expanded %>%
-        select(-contains("metaT_TPM")) %>%
-        filter(Parent.term == input$keggGroup) %>%
-        pivot_longer(cols = contains("metaP_LFQ"), names_to="Sample", values_to="Value") %>%
-        filter(Sample == input$kegg_sample_MP)
-  
-      if (input$kegg_yaxis_MP == "Summed LFQ") {
-        dataSubset <- dataSubset %>%
-          group_by(KEGG, Bin) %>%
-          summarise(y_axis = sum(Value, na.rm = TRUE))
-      }
-      if (input$kegg_yaxis_MP == "Protein count") {
-        dataSubset <- dataSubset %>%
-          group_by(KEGG, Bin) %>%
-          summarise(y_axis = sum(!is.na(Value)))
-      }
-  
-      plot <- ggplot(dataSubset) +
-        geom_col(mapping = aes(x=KEGG, fill = Bin, y=y_axis)) +
-        scale_fill_manual(values=global_swatch) +
-        scale_y_continuous(breaks = function(x) pretty(x, n=3)) +
-        labs(title = "", y=input$kegg_yaxis_MP, x="KEGG Pathway") +
-        theme(legend.position='none', axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-  
-      ggsave("keggPlot_MP.pdf", plot)
-      plot
-    })
-    output$download_keggPlot_MP  <- downloadHandler(
-      filename = function() {"keggPlot_MP.pdf"},
-      content = function(file) {file.copy("keggPlot_MP.pdf", file, overwrite=TRUE)}
-    )
-  }
+    plot <- ggplot(dataSubset) +
+      geom_col(mapping = aes(x=KEGG, fill = Bin, y=y_axis)) +
+      scale_fill_manual(values=global_swatch) +
+      scale_y_continuous(breaks = function(x) pretty(x, n=3)) +
+      labs(title = "", y=input$kegg_yaxis_MP, x="KEGG Pathway") +
+      theme(legend.position='none', axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+    ggsave("keggPlot_MP.pdf", plot)
+    plot
+  })
+  output$download_keggPlot_MP  <- downloadHandler(
+    filename = function() {"keggPlot_MP.pdf"},
+    content = function(file) {file.copy("keggPlot_MP.pdf", file, overwrite=TRUE)}
+  )
 
 
   #Need a proxy to manipulate the DT table
-  proxy_keggTable <- dataTableProxy('keggTable')
+  #proxy_keggTable <- dataTableProxy('keggTable')
 
   #Data subset generated by selecting a parent function
   keggTable_dataSubset <- reactive({
@@ -1003,113 +1082,125 @@ server <- function(input, output, session) {
 
 
   #KEGG-heatmaps, updates based on selected row in table, and on selected bin
-  if (do_metaT) {
-    output$keggPlot_heatmap_MT <- renderPlot({
-      s = input$keggTable_rows_selected
-      if (length(s)) {
-        selected_kegg <- as.character(keggTable_dataSubset()[s,] %>% select(KEGG))
-  
-        # selected_data <- data$kegg_proteins_expanded %>%
-        #   select(-contains("metaP_LFQ")) %>%
-        #   filter(Parent.term == input$keggGroup, KEGG == selected_kegg, Bin == input$keggPlot_heatmap_binSelector, EC != "") %>%
-        #   pivot_longer(cols = contains("metaT_TPM"), names_to = "Sample", values_to = "Value") %>%
-        #   group_by(EC, Sample) %>%
-        #   summarise(Value = sum(Value, na.rm = TRUE))
-        selected_data <- data$kegg_proteins_expanded %>%
-          select(-contains("metaP_LFQ")) %>%
-          filter(Parent.term == input$keggGroup, KEGG == selected_kegg, Bin == input$keggPlot_heatmap_binSelector, KO != "") %>%
-          mutate(Enzyme = ifelse(EC=="", KO, paste0(KO, " (", EC, ")"))) %>%
-          pivot_longer(cols = contains("metaT_TPM"), names_to = "Sample", values_to = "Value") %>%
-          group_by(Enzyme, Sample) %>%
-          summarise(Value = sum(Value, na.rm = TRUE))
-        
-        n_ec <- selected_data %>% select(Enzyme) %>% distinct() %>% deframe()
-
-        if (length(n_ec) == 0) {
-          ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough KEGG data for the selected bin") + theme_void()
-        } else {
-  
-          plot <- ggplot(selected_data) +
-            geom_tile(aes(y=Enzyme, x=Sample, fill=Value), color="white") +
-            labs(title = paste0("Abundance of enzymes in pathway ", selected_kegg,", Transcripts per million (tpm)")) +
-            theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
-            guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
-            scale_y_discrete(position = "right")
-          
-          ggsave("keggPlot_MT_heatmap.pdf", plot)
-          plot
-          
-        }
-  
-      }
-    },width = function() {
-      ncol(data$kegg_proteins_expanded %>% select(contains("metaT_TPM"))) * 30 + 550
-      
-    },height = function() {
-      round(length(data$kegg_proteins_expanded %>%
-                     filter(Parent.term == input$keggGroup, KEGG == as.character(keggTable_dataSubset()[input$keggTable_rows_selected,] %>% select(KEGG)), Bin == input$keggPlot_heatmap_binSelector) %>%
-                     select(KO) %>% distinct() %>% deframe()) * 15 + 250)
-    })
-    output$download_keggPlot_MT_heatmap  <- downloadHandler(
-      filename = function() {"keggPlot_MT_heatmap.pdf"},
-      content = function(file) {file.copy("keggPlot_MT_heatmap.pdf", file, overwrite=TRUE)}
-    )
+  output$keggPlot_heatmap_MT <- renderPlot({
+    print("KeggPlot_heatmap_MT rendering")
     
-  }
-
-  if (do_metaP) {
-    output$keggPlot_heatmap_MP <- renderPlot({
-      s = input$keggTable_rows_selected
-      if (length(s)) {
-        selected_kegg <- as.character(keggTable_dataSubset()[s,] %>% select(KEGG))
-  
-        # selected_data <- data$kegg_proteins_expanded %>%
-        #   select(-contains("metaT_TPM")) %>%
-        #   filter(Parent.term == input$keggGroup, KEGG == selected_kegg, Bin == input$keggPlot_heatmap_binSelector, EC != "") %>%
-        #   pivot_longer(cols = contains("metaP_LFQ"), names_to = "Sample", values_to = "Value") %>%
-        #   group_by(EC, Sample) %>%
-        #   summarise(Value = sum(Value, na.rm = TRUE))
-        selected_data <- data$kegg_proteins_expanded %>%
-          select(-contains("metaT_TPM")) %>%
-          filter(Parent.term == input$keggGroup, KEGG == selected_kegg, Bin == input$keggPlot_heatmap_binSelector, KO != "") %>%
-          mutate(Enzyme = ifelse(EC=="", KO, paste0(KO, " (", EC, ")"))) %>%
-          pivot_longer(cols = contains("metaP_LFQ"), names_to = "Sample", values_to = "Value") %>%
-          group_by(Enzyme, Sample) %>%
-          summarise(Value = sum(Value, na.rm = TRUE))
-        
-        n_ec <- selected_data %>% select(Enzyme) %>% distinct() %>% deframe()
-
-        if (length(n_ec) == 0) {
-          ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough KEGG data for the selected bin") + theme_void()
-        } else {
-          
-          plot <- ggplot(selected_data) +
-            geom_tile(aes(y=Enzyme, x=Sample, fill=Value), color="white") +
-            labs(title = paste0("Abundance of enzymes in pathway ", selected_kegg,", Protein LFQ")) +
-            theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
-            guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
-            scale_y_discrete(position = "right")
-          
-          ggsave("keggPlot_MP_heatmap.pdf", plot)
-          plot
-          
-        }
-      }
-    },width = function() {
-      ncol(data$kegg_proteins_expanded %>% select(contains("metaP_LFQ"))) * 30 + 550
-      
-    },height = function() {
-      round(length(data$kegg_proteins_expanded %>%
-                     filter(Parent.term == input$keggGroup, KEGG == as.character(keggTable_dataSubset()[input$keggTable_rows_selected,] %>% select(KEGG)), Bin == input$keggPlot_heatmap_binSelector) %>%
-                     select(KO) %>% distinct() %>% deframe()) * 15 + 250)
-    })
-    output$download_keggPlot_MP_heatmap  <- downloadHandler(
-      filename = function() {"keggPlot_MP_heatmap.pdf"},
-      content = function(file) {file.copy("keggPlot_MP_heatmap.pdf", file, overwrite=TRUE)}
-    )
+    s = input$keggTable_rows_selected
     
-  }
+    if (!do_metaT) {
+      print("returning...")
+      return()
+    }
+    
+    if (length(s)) {
+      selected_kegg <- as.character(keggTable_dataSubset()[s,] %>% select(KEGG))
 
+      # selected_data <- data$kegg_proteins_expanded %>%
+      #   select(-contains("metaP_LFQ")) %>%
+      #   filter(Parent.term == input$keggGroup, KEGG == selected_kegg, Bin == input$keggPlot_heatmap_binSelector, EC != "") %>%
+      #   pivot_longer(cols = contains("metaT_TPM"), names_to = "Sample", values_to = "Value") %>%
+      #   group_by(EC, Sample) %>%
+      #   summarise(Value = sum(Value, na.rm = TRUE))
+      selected_data <- data$kegg_proteins_expanded %>%
+        select(-contains("metaP_LFQ")) %>%
+        filter(Parent.term == input$keggGroup, KEGG == selected_kegg, Bin == input$keggPlot_heatmap_binSelector, KO != "") %>%
+        mutate(Enzyme = ifelse(EC=="", KO, paste0(KO, " (", EC, ")"))) %>%
+        pivot_longer(cols = contains("metaT_TPM"), names_to = "Sample", values_to = "Value") %>%
+        group_by(Enzyme, Sample) %>%
+        summarise(Value = sum(Value, na.rm = TRUE))
+      
+      n_ec <- selected_data %>% select(Enzyme) %>% distinct() %>% deframe()
+
+      if (length(n_ec) == 0) {
+        ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough KEGG data for the selected bin") + theme_void()
+      } else {
+
+        plot <- ggplot(selected_data) +
+          geom_tile(aes(y=Enzyme, x=Sample, fill=Value), color="white") +
+          labs(title = paste0("Abundance of enzymes in pathway ", selected_kegg,", Transcripts per million (tpm)")) +
+          theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
+          guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
+          scale_y_discrete(position = "right")
+        
+        ggsave("keggPlot_MT_heatmap.pdf", plot)
+        plot
+        
+      }
+
+    }
+  },width = function() {
+    ncol(data$kegg_proteins_expanded %>% select(contains("metaT_TPM"))) * 30 + 550
+    
+  },height = function() {
+    round(length(data$kegg_proteins_expanded %>%
+                   filter(Parent.term == input$keggGroup, KEGG == as.character(keggTable_dataSubset()[input$keggTable_rows_selected,] %>% select(KEGG)), Bin == input$keggPlot_heatmap_binSelector) %>%
+                   select(KO) %>% distinct() %>% deframe()) * 15 + 250)
+  })
+  output$download_keggPlot_MT_heatmap  <- downloadHandler(
+    filename = function() {"keggPlot_MT_heatmap.pdf"},
+    content = function(file) {file.copy("keggPlot_MT_heatmap.pdf", file, overwrite=TRUE)}
+  )
+
+  
+  
+  output$keggPlot_heatmap_MP <- renderPlot({
+    print("KeggPlot_heatmap_MP rendering")
+    
+    s = input$keggTable_rows_selected
+    
+    if (!do_metaP) {
+      print("returning...")
+      return()
+    }
+    
+    if (length(s)) {
+      selected_kegg <- as.character(keggTable_dataSubset()[s,] %>% select(KEGG))
+
+      # selected_data <- data$kegg_proteins_expanded %>%
+      #   select(-contains("metaT_TPM")) %>%
+      #   filter(Parent.term == input$keggGroup, KEGG == selected_kegg, Bin == input$keggPlot_heatmap_binSelector, EC != "") %>%
+      #   pivot_longer(cols = contains("metaP_LFQ"), names_to = "Sample", values_to = "Value") %>%
+      #   group_by(EC, Sample) %>%
+      #   summarise(Value = sum(Value, na.rm = TRUE))
+      selected_data <- data$kegg_proteins_expanded %>%
+        select(-contains("metaT_TPM")) %>%
+        filter(Parent.term == input$keggGroup, KEGG == selected_kegg, Bin == input$keggPlot_heatmap_binSelector, KO != "") %>%
+        mutate(Enzyme = ifelse(EC=="", KO, paste0(KO, " (", EC, ")"))) %>%
+        pivot_longer(cols = contains("metaP_LFQ"), names_to = "Sample", values_to = "Value") %>%
+        group_by(Enzyme, Sample) %>%
+        summarise(Value = sum(Value, na.rm = TRUE))
+      
+      n_ec <- selected_data %>% select(Enzyme) %>% distinct() %>% deframe()
+
+      if (length(n_ec) == 0) {
+        ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough KEGG data for the selected bin") + theme_void()
+      } else {
+        
+        plot <- ggplot(selected_data) +
+          geom_tile(aes(y=Enzyme, x=Sample, fill=Value), color="white") +
+          labs(title = paste0("Abundance of enzymes in pathway ", selected_kegg,", Protein LFQ")) +
+          theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
+          guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
+          scale_y_discrete(position = "right")
+        
+        ggsave("keggPlot_MP_heatmap.pdf", plot)
+        plot
+        
+      }
+    }
+  },width = function() {
+    ncol(data$kegg_proteins_expanded %>% select(contains("metaP_LFQ"))) * 30 + 550
+    
+  },height = function() {
+    round(length(data$kegg_proteins_expanded %>%
+                   filter(Parent.term == input$keggGroup, KEGG == as.character(keggTable_dataSubset()[input$keggTable_rows_selected,] %>% select(KEGG)), Bin == input$keggPlot_heatmap_binSelector) %>%
+                   select(KO) %>% distinct() %>% deframe()) * 15 + 250)
+  })
+  output$download_keggPlot_MP_heatmap  <- downloadHandler(
+    filename = function() {"keggPlot_MP_heatmap.pdf"},
+    content = function(file) {file.copy("keggPlot_MP_heatmap.pdf", file, overwrite=TRUE)}
+  )
+    
 
   #Colored KEGG pathway
   output$keggPathway <- renderImage({
@@ -1338,12 +1429,13 @@ server <- function(input, output, session) {
 
     datasubset <- data$contig_tbl %>%
                 group_by(Bin) %>%
-                summarise(`Contig count` = sum(!is.na(Contig))) %>%
+                summarise(`Contig count` = sum(!is.na(Contig)),
+                          `Avg. Coverage` = mean(Coverage, na.rm = TRUE)) %>%
                 left_join(data$master_tbl %>%
                             select(c('Accn', 'Bin')) %>%
                             group_by(Bin) %>%
                             summarise(`Gene count` = sum(!is.na(Accn))),
-                  by = c("Bin" = "Bin"))
+                            by = c("Bin" = "Bin"))
     
     if (do_lineage) {
       datasubset <- datasubset %>%
@@ -1361,10 +1453,15 @@ server <- function(input, output, session) {
                   by = c("Bin" = "Bin"))
     }
     
-    datasubset
     
+    #Filter to the sliders
+    datasubset <- datasubset %>% 
+      filter(Completeness >= input$MAG_slider_completeness, Contamination <= input$MAG_slider_contamination)
+
+    datasubset
   })
 
+  
   #Static, but interactive table
   output$MAGTable <- DT::renderDataTable(MAGTable_dataSubset(),
                                          server = FALSE,
@@ -1377,6 +1474,17 @@ server <- function(input, output, session) {
                                          rownames = FALSE)
 
 
+  #MAG-plot info string
+  output$MAGplot_info <- renderText({
+    
+    bin_count <- length(unique(data$contig_tbl$Bin))
+    contig_count <- length(unique(data$contig_tbl$Contig))
+
+    paste0("There are ",bin_count ," MAGs and ", contig_count, " contigs in your data")
+  })
+  
+  
+  
   #Plot, with highlighting from table
   output$MAGPlot <- renderPlot({
     print("rendering MAG plot")
@@ -1384,8 +1492,22 @@ server <- function(input, output, session) {
     showNotification("Loading...", type = "message", duration = 2)
     
 
+    #Plot shows the MAGs from the table, i.e. affected by the filtering options
+    bins_to_show <- MAGTable_dataSubset() %>% select(Bin) %>% distinct() %>% deframe()
+    
     dataSubset <- data$contig_tbl %>%
-      rename(`Contig length` = Length)
+      rename(`Contig length` = Length) %>%
+      filter(Bin %in% bins_to_show)
+    
+    moreThan50 <- length(unique(dataSubset$Bin)) > 49
+    
+    #Limit the plot to the 50 most abundant MAGs
+    if (moreThan50) {
+      mostAbundantMAGS <- MAGTable_dataSubset() %>% slice_max(`Avg. Coverage`, n = 50) %>% select(Bin) %>%  distinct() %>% deframe()
+      dataSubset <- dataSubset %>% filter(Bin %in% mostAbundantMAGS)
+      
+      print("Too many MAGs for plotting. Showing only top50.")
+    }
     
     colors_to_use <- global_swatch[unique(dataSubset$Bin)]
     
@@ -1393,10 +1515,7 @@ server <- function(input, output, session) {
       geom_point(alpha=0.7) +
       scale_color_manual(values=colors_to_use) +
       labs(title="", x="%GC", y="Coverage") +
-      scale_y_log10() +
-      {if(input$MAG_showEllipses)
-        geom_density_2d(size = 0.5)
-        }
+      scale_y_log10()
 
     s = input$MAGTable_rows_selected
 
@@ -1405,7 +1524,9 @@ server <- function(input, output, session) {
       selected_data <- dataSubset %>%
         filter(Bin %in% c(selected_bin))
 
-      plot <- plot + geom_point(data = selected_data, mapping = aes(x=GC, y=Coverage, size=`Contig length`, color=Bin), alpha=0.9, shape=21, fill="white", stroke=2)
+      #Could be that the selected bin is not drawn if the plot is limited to only the most abundant
+      if (length(selected_data))
+        plot <- plot + geom_point(data = selected_data, mapping = aes(x=GC, y=Coverage, size=`Contig length`, color=Bin), alpha=0.9, shape=21, fill="white", stroke=2)
     }
 
     ggsave("MAG_GC_coverage.pdf", plot)
@@ -1421,91 +1542,91 @@ server <- function(input, output, session) {
   
 
   #Heatmap - MAG abundance MT
-  if (do_metaT) {
-    output$MAGabundancePlot_heatmap_MT <- renderPlot({
-      
-      selected_data <- data$master_tbl %>%
-        select(Accn, Bin, contains("metaT_TPM")) %>%
-        pivot_longer(cols = contains("metaT_TPM"), names_to = "Sample", values_to = "Value") %>%
-        group_by(Bin, Sample) %>%
-        summarise(MAG_abundance = sum(Value, na.rm = TRUE))
-      
-      n_cc <- selected_data %>% select(Bin) %>% distinct() %>% deframe()
-      
-      if (length(n_cc) == 0) {
-        ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough MAG data for the selected bin") + theme_void()
-      } else {
-        
-        #Sort numbers alphabetically
-        #selected_data <- selected_data %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
-        
-        plot <- ggplot(selected_data) +
-          geom_tile(aes(y=Bin, x=Sample, fill=MAG_abundance), color="white") +
-          labs(title = "MAG Abundance per sample, summed transcripts per million (tpm)") +
-          theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
-          guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
-          scale_y_discrete(position = "right")
-        
-        ggsave("MAG_abundancePlot_MT_heatmap.pdf", plot)
-        plot
-      }
-    },width = function() {
-      ncol(data$master_tbl %>% select(contains("metaT_TPM"))) * 50 + 200
-      
-    },height = function() {
-      round(length(data$master_tbl %>%
-                     select(Bin) %>% distinct() %>% deframe()) * 15 + 250)
-    })
-    output$download_MAGabundancePlot_MT_heatmap  <- downloadHandler(
-      filename = function() {"MAG_abundancePlot_MT_heatmap.pdf"},
-      content = function(file) {file.copy("MAG_abundancePlot_MT_heatmap.pdf", file, overwrite=TRUE)}
-    )
+  output$MAGabundancePlot_heatmap_MT <- renderPlot({
     
-  }
-  
+    selected_data <- data$master_tbl %>%
+      select(Accn, Bin, contains("metaT_TPM")) %>%
+      pivot_longer(cols = contains("metaT_TPM"), names_to = "Sample", values_to = "Value") %>%
+      group_by(Bin, Sample) %>%
+      summarise(MAG_abundance = sum(Value, na.rm = TRUE))
+    
+    if (!do_metaT) return()
+
+    n_cc <- selected_data %>% select(Bin) %>% distinct() %>% deframe()
+    
+    if (length(n_cc) == 0) {
+      ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough MAG data for the selected bin") + theme_void()
+    } else {
+      
+      #Sort numbers alphabetically
+      #selected_data <- selected_data %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
+      
+      plot <- ggplot(selected_data) +
+        geom_tile(aes(y=Bin, x=Sample, fill=MAG_abundance), color="white") +
+        labs(title = "MAG Abundance per sample, summed transcripts per million (tpm)") +
+        theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
+        guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
+        scale_y_discrete(position = "right")
+      
+      ggsave("MAG_abundancePlot_MT_heatmap.pdf", plot)
+      plot
+    }
+  },width = function() {
+    ncol(data$master_tbl %>% select(contains("metaT_TPM"))) * 50 + 200
+    
+  },height = function() {
+    round(length(data$master_tbl %>%
+                   select(Bin) %>% distinct() %>% deframe()) * 15 + 250)
+  })
+  output$download_MAGabundancePlot_MT_heatmap  <- downloadHandler(
+    filename = function() {"MAG_abundancePlot_MT_heatmap.pdf"},
+    content = function(file) {file.copy("MAG_abundancePlot_MT_heatmap.pdf", file, overwrite=TRUE)}
+  )
+    
+
   #Heatmap - MAG abundance MP
-  if (do_metaP) {
-    output$MAGabundancePlot_heatmap_MP <- renderPlot({
-      
-      selected_data <- data$master_tbl %>%
-        select(Accn, Bin, contains("metaP_LFQ")) %>%
-        pivot_longer(cols = contains("metaP_LFQ"), names_to = "Sample", values_to = "Value") %>%
-        group_by(Bin, Sample) %>%
-        summarise(MAG_abundance = sum(Value, na.rm = TRUE))
-      
-      n_cc <- selected_data %>% select(Bin) %>% distinct() %>% deframe()
-      
-      if (length(n_cc) == 0) {
-        ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough MAG data for the selected bin") + theme_void()
-      } else {
-        
-        #Sort numbers alphabetically
-        #selected_data <- selected_data %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
-        
-        plot <- ggplot(selected_data) +
-          geom_tile(aes(y=Bin, x=Sample, fill=MAG_abundance), color="white") +
-          labs(title = "MAG Abundance per sample, summed protein LFQ") +
-          theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
-          guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
-          scale_y_discrete(position = "right")
-        
-        ggsave("MAG_abundancePlot_MP_heatmap.pdf", plot)
-        plot
-      }
-    },width = function() {
-      ncol(data$master_tbl %>% select(contains("metaP_LFQ"))) * 50 + 200
-      
-    },height = function() {
-      round(length(data$master_tbl %>%
-                     select(Bin) %>% distinct() %>% deframe()) * 15 + 250)
-    })
-    output$download_MAGabundancePlot_MP_heatmap  <- downloadHandler(
-      filename = function() {"MAG_abundancePlot_MP_heatmap.pdf"},
-      content = function(file) {file.copy("MAG_abundancePlot_MP_heatmap.pdf", file, overwrite=TRUE)}
-    )
+  output$MAGabundancePlot_heatmap_MP <- renderPlot({
     
-  }
-  
+    selected_data <- data$master_tbl %>%
+      select(Accn, Bin, contains("metaP_LFQ")) %>%
+      pivot_longer(cols = contains("metaP_LFQ"), names_to = "Sample", values_to = "Value") %>%
+      group_by(Bin, Sample) %>%
+      summarise(MAG_abundance = sum(Value, na.rm = TRUE))
+    
+    if (!do_metaP) return()
+    
+    n_cc <- selected_data %>% select(Bin) %>% distinct() %>% deframe()
+    
+    if (length(n_cc) == 0) {
+      ggplot() + annotate("text", x=4, y=25, size=8, label="Not enough MAG data for the selected bin") + theme_void()
+    } else {
+      
+      #Sort numbers alphabetically
+      #selected_data <- selected_data %>% mutate(CAZyClassNumber = factor(CAZyClassNumber, levels = c(1:300, 'cohesin', 'dockerin', 'SLH')))
+      
+      plot <- ggplot(selected_data) +
+        geom_tile(aes(y=Bin, x=Sample, fill=MAG_abundance), color="white") +
+        labs(title = "MAG Abundance per sample, summed protein LFQ") +
+        theme(legend.position = 'top', axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)) +
+        guides(fill = guide_colourbar(title="", barwidth = 20, barheight = 0.5)) +
+        scale_y_discrete(position = "right")
+      
+      ggsave("MAG_abundancePlot_MP_heatmap.pdf", plot)
+      plot
+    }
+  },width = function() {
+    ncol(data$master_tbl %>% select(contains("metaP_LFQ"))) * 50 + 200
+    
+  },height = function() {
+    round(length(data$master_tbl %>%
+                   select(Bin) %>% distinct() %>% deframe()) * 15 + 250)
+  })
+  output$download_MAGabundancePlot_MP_heatmap  <- downloadHandler(
+    filename = function() {"MAG_abundancePlot_MP_heatmap.pdf"},
+    content = function(file) {file.copy("MAG_abundancePlot_MP_heatmap.pdf", file, overwrite=TRUE)}
+  )
+    
+
   
   
   
